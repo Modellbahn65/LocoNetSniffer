@@ -89,16 +89,17 @@ void notifyMultiSensePower(uint8_t BoardID, uint8_t Subdistrict, uint8_t Mode, u
 }
 
 // This call-back function is called from LocoNet.processSwitchSensorMessage
+// for all Sensor messages
+void notifySensorB(uint8_t address, uint8_t block, bool State) {
+  Serial.printf("SensorB: address=%d block=%d present=%d\n",
+  address, block, State);
+}
+
+// This call-back function is called from LocoNet.processSwitchSensorMessage
 // for all notifyMultiSenseTransponder messages
-void notifyMultiSenseTransponder(uint16_t Address, uint8_t Zone, uint16_t LocoAddress, uint8_t Present) {
-  Serial.print("MultiSenseTransponder: Address: ");
-  Serial.print(Address, DEC);
-  Serial.print(" Zone: ");
-  Serial.print(Zone, DEC);
-  Serial.print(" Loco Address: ");
-  Serial.print(LocoAddress, DEC);
-  Serial.print(" Present: ");
-  Serial.println(Present, DEC);
+void notifyMultiSenseTransponderB(uint8_t address, uint8_t block, uint16_t locoAddress, bool present, bool locoDirection) {
+  Serial.printf("MultiSenseTransponderB: address=%d block=%d locoAddress=%d present=%d locoDirection=%s\n",
+  address, block, locoAddress, present, OPC_MULTI_SENSE_B_LOCO_DIRECTION_STRING(locoDirection));
 }
 
 // This call-back function is called from LocoNet.processSwitchSensorMessage
@@ -125,12 +126,12 @@ void setup() {
       Serial.printf("onPacket: %s\n", tmp);
   });
 
-  parser.onSensorChange(notifySensor);
+  parser.onSensorChangeB(notifySensorB);
   parser.onSwitchRequest(notifySwitchRequest);
   parser.onSwitchReport(notifySwitchReport);
   parser.onSwitchState(notifySwitchState);
   parser.onPowerChange(notifyPower);
-  parser.onMultiSenseTransponder(notifyMultiSenseTransponder);
+  parser.onMultiSenseTransponderB(notifyMultiSenseTransponderB);
   parser.onMultiSenseDeviceInfo(notifyMultiSensePower);
 
 }
