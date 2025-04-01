@@ -14,6 +14,16 @@ LocoNetBus bus;
 LocoNetDispatcher parser(&bus);
 LocoNetStreamESP32 lnStream(1, LOCONET_PIN_RX, LOCONET_PIN_TX, LOCONET_UART_SIGNAL_INVERT_RX, LOCONET_UART_SIGNAL_INVERT_TX, &bus);
 
+#include <WiFi.h>
+#include <PubSubClient.h>
+#include "wificredentials.h"
+
+#define MQTT_SERVER "synergy"
+
+WiFiClient espClient;
+PubSubClient client(MQTT_SERVER, 1883, espClient);
+
+#define LN_TOPIC "ln"
 
 // This call-back function is called from LocoNet.processSwitchSensorMessage
 // for all Sensor messages
@@ -91,8 +101,10 @@ void notifyMultiSensePower(uint8_t BoardID, uint8_t Subdistrict, uint8_t Mode, u
 // This call-back function is called from LocoNet.processSwitchSensorMessage
 // for all Sensor messages
 void notifySensorB(uint8_t address, uint8_t block, bool State) {
-  Serial.printf("SensorB: address=%d block=%d present=%d\n",
-  address, block, State);
+  Serial.printf("SensorB: address=%2d block=%d present=%d\n", address, block, State);
+  char msg[100];
+  snprintf(msg, sizeof(msg), "SensorB: address=%2d block=%d present=%d", address, block, State);
+  client.publish(LN_TOPIC, msg, false);
 }
 
 // This call-back function is called from LocoNet.processSwitchSensorMessage
@@ -116,7 +128,20 @@ void notifyLongAck(uint8_t d1, uint8_t d2) {
 void setup() {
   
   Serial.begin(115200);
-  Serial.println("LocoNet2 Basic Demo");
+  Serial.println("LocoNet2 MQTT Relay");
+
+  Serial.printf("Connecting to WiFi network %s\n", WIFI_SSID);
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
+  if (WiFi.waitForConnectResult() != WL_CONNECTED) 
+    ESP.restart();
+  Serial.println("WiFi connected");
+  Serial.print("IP address: ");
+  Serial.println(WiFi.localIP());
+  
+  Serial.printf("Connecting to MQTT server \"%s\"\n", MQTT_SERVER);
+  while (!client.connected())
+    client.connect("LocoNet2-MQTT-Relay", "ha", "ha");
+  Serial.println("Connected to MQTT server");
 
   lnStream.start();
 
@@ -139,7 +164,8 @@ void setup() {
 uint16_t sensorIndex = 0;
 
 void loop() {
+  client.loop();
   lnStream.process();
 
-  delay(10);
+  delay(1);
 }
