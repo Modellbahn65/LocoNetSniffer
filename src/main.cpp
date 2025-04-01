@@ -32,6 +32,10 @@ void notifySensor( uint16_t Address, uint8_t State ) {
   Serial.print(Address, DEC);
   Serial.print(" - ");
   Serial.println( State ? "Active" : "Inactive" );
+  
+  String topic = LN_TOPIC "/sensor/";
+  topic += Address;
+  client.publish(topic.c_str(), State ? "1" : "0");
 }
 
 // This call-back function is called from LocoNet.processSwitchSensorMessage
@@ -43,6 +47,12 @@ void notifySwitchRequest( uint16_t Address, uint8_t Output, uint8_t Direction ) 
   Serial.print(Direction ? "Closed" : "Thrown");
   Serial.print(" - ");
   Serial.println(Output ? "On" : "Off");
+
+  String topic = LN_TOPIC "/switch/";
+  topic += Address;
+  topic += '/';
+  topic += Direction;
+  client.publish(topic.c_str(), Output ? "1" : "0");
 }
 
 // This call-back function is called from LocoNet.processSwitchSensorMessage
@@ -102,9 +112,14 @@ void notifyMultiSensePower(uint8_t BoardID, uint8_t Subdistrict, uint8_t Mode, u
 // for all Sensor messages
 void notifySensorB(uint8_t address, uint8_t block, bool State) {
   Serial.printf("SensorB: address=%2d block=%d present=%d\n", address, block, State);
-  char msg[100];
-  snprintf(msg, sizeof(msg), "SensorB: address=%2d block=%d present=%d", address, block, State);
-  client.publish(LN_TOPIC, msg, false);
+  //char msg[100];
+  //snprintf(msg, sizeof(msg), "SensorB: address=%2d block=%d present=%d", address, block, State);
+  //client.publish(LN_TOPIC + "/debug", msg, false);
+  String topic = LN_TOPIC "/sensorB/";
+  topic += address;
+  topic += '/';
+  topic += block;
+  client.publish(topic.c_str(), State ? "1" : "0");
 }
 
 // This call-back function is called from LocoNet.processSwitchSensorMessage
@@ -125,6 +140,53 @@ void notifyLongAck(uint8_t d1, uint8_t d2) {
 
 }
 
+enum MqttTypes {
+  TYPE_UNKNOWN,
+  TYPE_REPORTSENSOR,
+  TYPE_REPORTSENSORB,
+  TYPE_REQUESTSWITCH,
+};
+
+MqttTypes resolveType(String type) {
+  if (type == "reportSensor") return TYPE_REPORTSENSOR;
+  if (type == "reportSensorB") return TYPE_REPORTSENSORB;
+  if (type == "requestSwitch") return TYPE_REQUESTSWITCH;
+  return TYPE_UNKNOWN;
+}
+
+void mqttCallback(const char* topic, byte* payload, unsigned int length) {
+  String t = topic;
+  String p = String(payload, length);
+  Serial.printf("Received MQTT message for topic %s: %s\n", t.c_str(), p.c_str());
+  
+  String topicStripped = t.substring(t.indexOf('/') + 1);
+
+  String type = topicStripped.substring(0, topicStripped.indexOf('/'));
+  topicStripped = topicStripped.substring(topicStripped.indexOf('/') + 1);
+  switch (resolveType(type)) {
+    default:
+    case TYPE_UNKNOWN:
+      break;
+    case TYPE_REPORTSENSOR:
+      reportSensor(&bus, topicStripped.toInt(), p.charAt(0) != '0');
+      break;
+    case TYPE_REPORTSENSORB:
+      {
+        int addr = topicStripped.substring(0, topicStripped.indexOf('/')).toInt();
+        int block = topicStripped.substring(topicStripped.indexOf('/') + 1).toInt();
+        reportSensorB(&bus, addr, block, p.charAt(0) != '0');
+      }
+      break;
+    case TYPE_REQUESTSWITCH:
+      {
+        int addr = topicStripped.substring(0, topicStripped.indexOf('/')).toInt();
+        int direction = topicStripped.substring(topicStripped.indexOf('/') + 1).toInt();
+        requestSwitch(&bus, addr,  p.charAt(0) != '0', direction);
+      }
+      break;
+  }
+}
+
 void setup() {
   
   Serial.begin(115200);
@@ -143,6 +205,11 @@ void setup() {
     client.connect("LocoNet2-MQTT-Relay", "ha", "ha");
   Serial.println("Connected to MQTT server");
 
+  client.setCallback(mqttCallback);
+  client.subscribe(LN_TOPIC "/reportSensor/+");
+  client.subscribe(LN_TOPIC "/reportSensorB/#");
+  client.subscribe(LN_TOPIC "/requestSwitch/#");
+
   lnStream.start();
 
   parser.onPacket(CALLBACK_FOR_ALL_OPCODES, [](const lnMsg *rxPacket) {
@@ -152,6 +219,7 @@ void setup() {
   });
 
   parser.onSensorChangeB(notifySensorB);
+  parser.onSensorChange(notifySensor);
   parser.onSwitchRequest(notifySwitchRequest);
   parser.onSwitchReport(notifySwitchReport);
   parser.onSwitchState(notifySwitchState);
